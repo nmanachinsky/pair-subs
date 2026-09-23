@@ -114,9 +114,16 @@
   <p class="note">Хранится только в этом браузере (localStorage) и отправляется только на api.deepseek.com. В коде страницы ключа нет.</p>
   <label for="modelSelect">Модель</label>
   <select id="modelSelect">
-    <option value="deepseek-chat">deepseek-chat — быстро, рекомендуемо</option>
-    <option value="deepseek-reasoner">deepseek-reasoner — медленнее</option>
+    <option value="deepseek-flash">deepseek-flash (V4.1) — быстро и дёшево, рекомендуемо</option>
+    <option value="deepseek-v4-pro">deepseek-v4-pro — медленнее, дороже</option>
   </select>
+  <label for="thinkingSelect">Режим мышления (thinking)</label>
+  <select id="thinkingSelect">
+    <option value="off">Выкл — самый быстрый ответ (рекомендуемо)</option>
+    <option value="low">Минимальный — чуть умнее, чуть медленнее</option>
+    <option value="high">High — умнее, но с задержкой</option>
+  </select>
+  <p class="note">У DeepSeek thinking включён по умолчанию и заметно тормозит перевод, поэтому здесь он выключен, пока не выберешь другое.</p>
   <label for="langSelect">Язык речи (распознавание)</label>
   <select id="langSelect">
     <option value="en-US">English (US)</option>
@@ -149,6 +156,7 @@
     toggle: $('#toggleBtn'), answer: $('#answerBtn'), exportBtn: $('#exportBtn'), clear: $('#clearBtn'),
     settingsBtn: $('#settingsBtn'), settingsDialog: $('#settingsDialog'),
     keyInput: $('#keyInput'), modelSelect: $('#modelSelect'), langSelect: $('#langSelect'),
+    thinkingSelect: $('#thinkingSelect'),
     glossaryInput: $('#glossaryInput'), settingsClose: $('#settingsClose'),
     answerDialog: $('#answerDialog'), answerOut: $('#answerOut'),
     answerClose: $('#answerClose'), copyAnswer: $('#copyAnswerBtn'),
@@ -159,6 +167,7 @@
     model: 'pairsubs.model',
     lang: 'pairsubs.lang',
     glossary: 'pairsubs.glossary',
+    thinking: 'pairsubs.thinking',
   };
 
   const state = {
@@ -172,7 +181,15 @@
     set(k, v) { try { localStorage.setItem(k, v); } catch {} },
   };
   const apiKey = () => store.get(LS.key).trim();
-  const model = () => store.get(LS.model, 'deepseek-chat') || 'deepseek-chat';
+  const MODELS = ['deepseek-flash', 'deepseek-v4-pro'];
+  const model = () => {
+    const m = store.get(LS.model, 'deepseek-flash');
+    return MODELS.includes(m) ? m : 'deepseek-flash';
+  };
+  const thinking = () => {
+    const t = store.get(LS.thinking, 'off');
+    return ['off', 'low', 'high'].includes(t) ? t : 'off';
+  };
   const lang = () => store.get(LS.lang, 'en-US') || 'en-US';
   const glossary = () => store.get(LS.glossary).trim();
 
@@ -198,6 +215,7 @@
   function openSettings() {
     el.keyInput.value = apiKey();
     el.modelSelect.value = model();
+    el.thinkingSelect.value = thinking();
     el.langSelect.value = lang();
     el.glossaryInput.value = store.get(LS.glossary);
     el.settingsDialog.showModal();
@@ -206,6 +224,7 @@
   el.settingsClose.onclick = () => el.settingsDialog.close();
   el.keyInput.addEventListener('input', () => store.set(LS.key, el.keyInput.value.trim()));
   el.modelSelect.addEventListener('change', () => store.set(LS.model, el.modelSelect.value));
+  el.thinkingSelect.addEventListener('change', () => store.set(LS.thinking, el.thinkingSelect.value));
   el.langSelect.addEventListener('change', () => store.set(LS.lang, el.langSelect.value));
   el.glossaryInput.addEventListener('input', () => store.set(LS.glossary, el.glossaryInput.value));
 
@@ -330,10 +349,21 @@
   }
 
   async function chatStream(messages, onDelta) {
+    const t = thinking();
+    const body = { model: model(), messages, stream: true };
+    if (t === 'off') {
+      body.thinking = { type: 'disabled' };
+      body.temperature = 0.3;
+      body.max_tokens = 1024;
+    } else {
+      body.thinking = { type: 'enabled' };
+      body.reasoning_effort = t;
+      body.max_tokens = 8192;
+    }
     const res = await fetch(API_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + apiKey() },
-      body: JSON.stringify({ model: model(), messages, stream: true, temperature: 0.3, max_tokens: 1024 }),
+      body: JSON.stringify(body),
     });
     if (!res.ok) {
       let detail = '';
