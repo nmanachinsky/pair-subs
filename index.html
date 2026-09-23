@@ -124,6 +124,12 @@
     <option value="high">High — умнее, но с задержкой</option>
   </select>
   <p class="note">У DeepSeek thinking включён по умолчанию и заметно тормозит перевод, поэтому здесь он выключен, пока не выберешь другое.</p>
+  <label for="levelSelect">Уровень английского (для подсказок «Что ответить?»)</label>
+  <select id="levelSelect">
+    <option value="A1-A2">A1–A2 — простые короткие фразы (рекомендуемо)</option>
+    <option value="B1">B1 — средний</option>
+    <option value="B2+">B2+ — свободный</option>
+  </select>
   <label for="langSelect">Язык речи (распознавание)</label>
   <select id="langSelect">
     <option value="en-US">English (US)</option>
@@ -156,7 +162,7 @@
     toggle: $('#toggleBtn'), answer: $('#answerBtn'), exportBtn: $('#exportBtn'), clear: $('#clearBtn'),
     settingsBtn: $('#settingsBtn'), settingsDialog: $('#settingsDialog'),
     keyInput: $('#keyInput'), modelSelect: $('#modelSelect'), langSelect: $('#langSelect'),
-    thinkingSelect: $('#thinkingSelect'),
+    thinkingSelect: $('#thinkingSelect'), levelSelect: $('#levelSelect'),
     glossaryInput: $('#glossaryInput'), settingsClose: $('#settingsClose'),
     answerDialog: $('#answerDialog'), answerOut: $('#answerOut'),
     answerClose: $('#answerClose'), copyAnswer: $('#copyAnswerBtn'),
@@ -168,6 +174,7 @@
     lang: 'pairsubs.lang',
     glossary: 'pairsubs.glossary',
     thinking: 'pairsubs.thinking',
+    level: 'pairsubs.level',
   };
 
   const state = {
@@ -189,6 +196,10 @@
   const thinking = () => {
     const t = store.get(LS.thinking, 'off');
     return ['off', 'low', 'high'].includes(t) ? t : 'off';
+  };
+  const level = () => {
+    const l = store.get(LS.level, 'A1-A2');
+    return ['A1-A2', 'B1', 'B2+'].includes(l) ? l : 'A1-A2';
   };
   const lang = () => store.get(LS.lang, 'en-US') || 'en-US';
   const glossary = () => store.get(LS.glossary).trim();
@@ -216,6 +227,7 @@
     el.keyInput.value = apiKey();
     el.modelSelect.value = model();
     el.thinkingSelect.value = thinking();
+    el.levelSelect.value = level();
     el.langSelect.value = lang();
     el.glossaryInput.value = store.get(LS.glossary);
     el.settingsDialog.showModal();
@@ -225,6 +237,7 @@
   el.keyInput.addEventListener('input', () => store.set(LS.key, el.keyInput.value.trim()));
   el.modelSelect.addEventListener('change', () => store.set(LS.model, el.modelSelect.value));
   el.thinkingSelect.addEventListener('change', () => store.set(LS.thinking, el.thinkingSelect.value));
+  el.levelSelect.addEventListener('change', () => store.set(LS.level, el.levelSelect.value));
   el.langSelect.addEventListener('change', () => store.set(LS.lang, el.langSelect.value));
   el.glossaryInput.addEventListener('input', () => store.set(LS.glossary, el.glossaryInput.value));
 
@@ -331,6 +344,7 @@
       '',
       'Правила:',
       '- Выводи ТОЛЬКО перевод, без пояснений, кавычек и вступлений.',
+      '- Переводи ёмко и по существу: без «воды», без добавленных от себя слов, без пересказа.',
       '- Речь распознана автоматически: пунктуации нет, возможны ошибки. Восстанавливай смысл по контексту.',
       '- Термины переводи точно и единообразно.',
       '- Если фраза оборвана, переведи так, как она, вероятнее всего, прозвучала.',
@@ -472,10 +486,15 @@
     const messages = [
       { role: 'system', content: [
         'Ты — помощник студента на паре по английскому языку.',
+        'Уровень английского студента: ' + level() + '. Держи ответы строго в рамках этого уровня: простые слова, короткие предложения, базовые конструкции.',
         'Ниже расшифровка последних реплик пары.',
-        'Если последнее — вопрос к студенту: предложи 2–3 коротких варианта ответа на английском (естественных, разговорных), каждый с переводом на русский.',
-        'Если это объяснение или обсуждение: предложи один уточняющий вопрос на английском с переводом и одну короткую фразу, чтобы показать понимание.',
-        'Пиши компактно, без вступлений.',
+        '',
+        'Правила:',
+        '- Отвечай предельно коротко: максимум 4–5 строк, без вступлений, объяснений и морали.',
+        '- Если последнее — вопрос к студенту: дай 2–3 варианта ответа. Каждый — одна простая фраза на английском (до 8 слов), формат: EN — RU.',
+        '- Для A1–A2 используй Present Simple, простые вопросы, самые частые слова. Никаких сложных конструкций.',
+        '- Если это объяснение: одна короткая уточняющая фраза на английском с переводом.',
+        '- Не выдумывай факты, которых не было в транскрипте.',
       ].join('\n') },
       { role: 'user', content: body },
     ];
