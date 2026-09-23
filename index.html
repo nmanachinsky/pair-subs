@@ -92,9 +92,9 @@
 
 <main>
   <div id="hint">
-    Нажми <b>«Старт»</b> и положи телефон рядом с динамиком планшета (в Teams — громкая связь/звук погромче).
-    Распознавание речи — английский (Chrome), перевод — DeepSeek.
-    Ключ API и глоссарий — в <b>⚙️ настройках</b>.
+    Нажми <b>«Старт»</b> один раз на всю пару и положи телефон рядом с динамиком планшета (в Teams — громкая связь/звук погромче).
+    Дальше распознавание идёт непрерывно: страница сама перезапускает его после пауз Chrome.
+    Ключ API, контекст занятия и глоссарий — в <b>⚙️ настройках</b>.
   </div>
   <div id="log"></div>
   <div id="interim"></div>
@@ -137,6 +137,8 @@
   </select>
   <label for="glossaryInput">Глоссарий терминов (по одному на строку)</label>
   <textarea id="glossaryInput" placeholder="conjugation — спряжение&#10;Present Perfect — Present Perfect (не переводить)"></textarea>
+  <label for="contextInput">Контекст занятия (тема, домашка, имена)</label>
+  <textarea id="contextInput" placeholder="Например: тема — Present Perfect; домашка — упр. 3 стр. 45, сравнить времена; преподаватель спрашивает про daily routine."></textarea>
   <div class="dialog-actions"><button type="button" id="settingsClose" class="primary">Готово</button></div>
 </dialog>
 
@@ -163,7 +165,7 @@
     settingsBtn: $('#settingsBtn'), settingsDialog: $('#settingsDialog'),
     keyInput: $('#keyInput'), modelSelect: $('#modelSelect'), langSelect: $('#langSelect'),
     thinkingSelect: $('#thinkingSelect'), levelSelect: $('#levelSelect'),
-    glossaryInput: $('#glossaryInput'), settingsClose: $('#settingsClose'),
+    glossaryInput: $('#glossaryInput'), contextInput: $('#contextInput'), settingsClose: $('#settingsClose'),
     answerDialog: $('#answerDialog'), answerOut: $('#answerOut'),
     answerClose: $('#answerClose'), copyAnswer: $('#copyAnswerBtn'),
   };
@@ -175,6 +177,7 @@
     glossary: 'pairsubs.glossary',
     thinking: 'pairsubs.thinking',
     level: 'pairsubs.level',
+    context: 'pairsubs.context',
   };
 
   const state = {
@@ -201,6 +204,7 @@
     const l = store.get(LS.level, 'A1-A2');
     return ['A1-A2', 'B1', 'B2+'].includes(l) ? l : 'A1-A2';
   };
+  const lessonContext = () => store.get(LS.context).trim();
   const lang = () => store.get(LS.lang, 'en-US') || 'en-US';
   const glossary = () => store.get(LS.glossary).trim();
 
@@ -230,6 +234,7 @@
     el.levelSelect.value = level();
     el.langSelect.value = lang();
     el.glossaryInput.value = store.get(LS.glossary);
+    el.contextInput.value = store.get(LS.context);
     el.settingsDialog.showModal();
   }
   el.settingsBtn.onclick = openSettings;
@@ -240,6 +245,7 @@
   el.levelSelect.addEventListener('change', () => store.set(LS.level, el.levelSelect.value));
   el.langSelect.addEventListener('change', () => store.set(LS.lang, el.langSelect.value));
   el.glossaryInput.addEventListener('input', () => store.set(LS.glossary, el.glossaryInput.value));
+  el.contextInput.addEventListener('input', () => store.set(LS.context, el.contextInput.value));
 
   // ---------- recognition ----------
   function addFinal(raw) {
@@ -351,7 +357,31 @@
     ].join('\n');
     const g = glossary();
     if (g) p += '\n\nГлоссарий (используй эти варианты):\n' + g;
+    const c = lessonContext();
+    if (c) p += '\n\nКонтекст занятия (фон для понимания; в ответ не выводи):\n' + c;
     return p;
+  }
+
+  function askAnswerPrompt() {
+    const lines = [
+      'Ты — помощник студента на паре по английскому языку.',
+      'Уровень английского студента: ' + level() + '. Держи ответы строго в рамках этого уровня.',
+    ];
+    const c = lessonContext();
+    if (c) lines.push('Контекст занятия от студента (учитывай в подсказках):\n' + c);
+    lines.push(
+      'Ниже расшифровка последних реплик пары.',
+      '',
+      'Правила:',
+      '- Отвечай предельно коротко: максимум 4–5 строк, без вступлений, объяснений и морали.',
+      '- Если последнее — вопрос к студенту: дай 2–3 варианта ответа. Каждый — одна простая фраза на английском (до 8 слов), формат: EN — RU.',
+      level() === 'A1-A2'
+        ? '- Используй Present Simple, простые вопросы и самые частые слова. Никаких сложных конструкций.'
+        : '- Допустимы конструкции уровня ' + level() + ', но без перегруза.',
+      '- Если это объяснение: одна короткая уточняющая фраза на английском с переводом.',
+      '- Не выдумывай факты, которых не было в транскрипте.'
+    );
+    return lines.join('\n');
   }
 
   function contextPairs() {
@@ -484,18 +514,7 @@
     ).join('\n\n');
     el.answerOut.textContent = '…';
     const messages = [
-      { role: 'system', content: [
-        'Ты — помощник студента на паре по английскому языку.',
-        'Уровень английского студента: ' + level() + '. Держи ответы строго в рамках этого уровня: простые слова, короткие предложения, базовые конструкции.',
-        'Ниже расшифровка последних реплик пары.',
-        '',
-        'Правила:',
-        '- Отвечай предельно коротко: максимум 4–5 строк, без вступлений, объяснений и морали.',
-        '- Если последнее — вопрос к студенту: дай 2–3 варианта ответа. Каждый — одна простая фраза на английском (до 8 слов), формат: EN — RU.',
-        '- Для A1–A2 используй Present Simple, простые вопросы, самые частые слова. Никаких сложных конструкций.',
-        '- Если это объяснение: одна короткая уточняющая фраза на английском с переводом.',
-        '- Не выдумывай факты, которых не было в транскрипте.',
-      ].join('\n') },
+      { role: 'system', content: askAnswerPrompt() },
       { role: 'user', content: body },
     ];
     try {
