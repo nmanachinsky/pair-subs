@@ -40,6 +40,10 @@
     padding:12px 14px;margin-bottom:18px;
   }
   #hint b{color:var(--text)}
+  #diag{
+    margin-top:10px;padding-top:8px;border-top:1px dashed var(--line);
+    color:var(--muted);font-size:12.5px;line-height:1.5;white-space:pre-line;
+  }
   #log{display:flex;flex-direction:column;gap:18px}
   .seg .ru{font-size:clamp(20px,5.2vw,28px);line-height:1.32;font-weight:600;overflow-wrap:anywhere}
   .seg .ru.pending{color:var(--muted);font-weight:500}
@@ -95,6 +99,7 @@
     Нажми <b>«Старт»</b> один раз на всю пару и положи телефон рядом с динамиком планшета (в Teams — громкая связь/звук погромче).
     Дальше распознавание идёт непрерывно: страница сама перезапускает его после пауз Chrome.
     Ключ API, контекст занятия и глоссарий — в <b>⚙️ настройках</b>.
+    <div id="diag" hidden></div>
   </div>
   <div id="log"></div>
   <div id="interim"></div>
@@ -160,7 +165,7 @@
   const $ = (s) => document.querySelector(s);
   const el = {
     dot: $('#dot'), status: $('#statusText'),
-    hint: $('#hint'), log: $('#log'), interim: $('#interim'),
+    hint: $('#hint'), diag: $('#diag'), log: $('#log'), interim: $('#interim'),
     toggle: $('#toggleBtn'), answer: $('#answerBtn'), exportBtn: $('#exportBtn'), clear: $('#clearBtn'),
     settingsBtn: $('#settingsBtn'), settingsDialog: $('#settingsDialog'),
     keyInput: $('#keyInput'), modelSelect: $('#modelSelect'), langSelect: $('#langSelect'),
@@ -183,7 +188,8 @@
   const state = {
     running: false, stopping: false, busy: false,
     rec: null, lock: null, queue: [], segments: [], history: [],
-    stick: true, statusTimer: null,
+    stick: true, statusTimer: null, silenceTimer: null, silentWarn: false,
+    diag: { events: 0, errors: 0, restarts: 0, lastError: '' },
   };
 
   const store = {
@@ -219,6 +225,33 @@
   function flashStatus(text) {
     el.status.textContent = text;
     state.statusTimer = setTimeout(() => setStatus(state.running ? 'listening' : 'idle'), 2500);
+  }
+
+  const REC_ERRORS = {
+    'not-allowed': 'нет доступа к микрофону',
+    'service-not-allowed': 'сервис распознавания недоступен',
+    'audio-capture': 'микрофон не найден или занят',
+    'network': 'нет сети для распознавания',
+    'language-not-supported': 'язык не поддерживается',
+    'no-speech': 'тишина',
+    'aborted': 'прервано',
+  };
+  function resetDiag() {
+    state.diag = { events: 0, errors: 0, restarts: 0, lastError: '' };
+    state.silentWarn = false;
+    el.diag.hidden = false;
+    el.diag.textContent = 'Диагностика: жду события распознавания…';
+  }
+  function updateDiag() {
+    const d = state.diag;
+    const parts = ['события: ' + d.events, 'ошибки: ' + d.errors];
+    if (d.lastError) parts.push('последняя: ' + (REC_ERRORS[d.lastError] || d.lastError) + ' (' + d.lastError + ')');
+    parts.push('перезапуски: ' + d.restarts);
+    let text = 'Диагностика — ' + parts.join(' · ');
+    if (state.silentWarn && d.events === 0) {
+      text += '\n⚠ За 12 секунд — ни одного события. Если ты говорил, звук не доходит: проверь, что открыт Chrome, микрофон разрешён (замочек в адресной строке) и работает ли голосовой поиск Google.';
+    }
+    el.diag.textContent = text;
   }
 
   // ---------- scrolling ----------
@@ -278,6 +311,9 @@
     rec.interimResults = true;
     rec.maxAlternatives = 1;
     rec.onresult = (e) => {
+      state.diag.events++;
+      updateDiag();
+      if (el.dot.classList.contains('err')) setStatus('listening');
       let interim = '';
       for (let i = e.resultIndex; i < e.results.length; i++) {
         const r = e.results[i];
@@ -288,15 +324,21 @@
       autoScroll();
     };
     rec.onerror = (e) => {
-      if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
+      state.diag.errors++;
+      state.diag.lastError = e.error;
+      updateDiag();
+      const fatal = e.error === 'not-allowed' || e.error === 'service-not-allowed' || e.error === 'audio-capture';
+      if (fatal) {
         stopListening();
-        setStatus('error', 'Нет доступа к микрофону');
-      } else if (e.error === 'network') {
-        setStatus('error', 'Распознавание: нет сети');
+        setStatus('error', 'Микрофон: ' + (REC_ERRORS[e.error] || e.error));
+      } else if (e.error === 'network' || e.error === 'language-not-supported') {
+        setStatus('error', REC_ERRORS[e.error] || e.error);
       }
     };
     rec.onend = () => {
       if (!state.stopping && state.running) {
+        state.diag.restarts++;
+        updateDiag();
         setTimeout(() => { if (state.running) { try { rec.start(); } catch {} } }, 250);
       }
     };
@@ -310,6 +352,14 @@
     state.rec = rec;
     state.running = true;
     state.stopping = false;
+    resetDiag();
+    clearTimeout(state.silenceTimer);
+    state.silenceTimer = setTimeout(() => {
+      if (state.running && state.diag.events === 0) {
+        state.silentWarn = true;
+        updateDiag();
+      }
+    }, 12000);
     try { rec.start(); } catch {}
     setStatus('listening');
     updateToggle();
@@ -319,6 +369,7 @@
   function stopListening() {
     state.running = false;
     state.stopping = true;
+    clearTimeout(state.silenceTimer);
     try { state.rec && state.rec.stop(); } catch {}
     el.interim.textContent = '';
     releaseLock();
