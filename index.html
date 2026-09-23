@@ -100,6 +100,7 @@
     Дальше распознавание идёт непрерывно: страница сама перезапускает его после пауз Chrome.
     Ключ API, контекст занятия и глоссарий — в <b>⚙️ настройках</b>.
     <div id="diag" hidden></div>
+    <button type="button" id="micTestBtn" class="linkish">Проверить микрофон (4 сек)</button>
   </div>
   <div id="log"></div>
   <div id="interim"></div>
@@ -165,7 +166,7 @@
   const $ = (s) => document.querySelector(s);
   const el = {
     dot: $('#dot'), status: $('#statusText'),
-    hint: $('#hint'), diag: $('#diag'), log: $('#log'), interim: $('#interim'),
+    hint: $('#hint'), diag: $('#diag'), log: $('#log'), interim: $('#interim'), micTest: $('#micTestBtn'),
     toggle: $('#toggleBtn'), answer: $('#answerBtn'), exportBtn: $('#exportBtn'), clear: $('#clearBtn'),
     settingsBtn: $('#settingsBtn'), settingsDialog: $('#settingsDialog'),
     keyInput: $('#keyInput'), modelSelect: $('#modelSelect'), langSelect: $('#langSelect'),
@@ -236,23 +237,97 @@
     'no-speech': 'тишина',
     'aborted': 'прервано',
   };
+
+  function browserName() {
+    const ua = navigator.userAgent;
+    const pick = (re) => { const m = re.exec(ua); return m ? m[1] : null; };
+    const samsung = pick(/SamsungBrowser\/(\d+)/);
+    if (samsung) return 'Samsung Internet ' + samsung;
+    if (/YaBrowser/.test(ua)) return 'Яндекс.Браузер';
+    if (/OPR\//.test(ua)) return 'Opera';
+    if (/Firefox\//.test(ua)) return 'Firefox';
+    if (/EdgA?\//.test(ua)) return 'Edge';
+    const chrome = pick(/Chrome\/(\d+)/);
+    if (chrome) return 'Chrome ' + chrome + (/Android/.test(ua) ? ' (Android)' : '');
+    if (/wv\)/.test(ua)) return 'WebView (не Chrome)';
+    return ua.slice(0, 60);
+  }
+
+  async function micPermission() {
+    try {
+      if (navigator.permissions && navigator.permissions.query) {
+        const p = await navigator.permissions.query({ name: 'microphone' });
+        return p.state;
+      }
+    } catch {}
+    return 'неизвестно';
+  }
+
+  async function refreshEnv() {
+    const api = (window.SpeechRecognition || window.webkitSpeechRecognition) ? 'да' : 'нет';
+    const perm = await micPermission();
+    state.envText = `Среда: ${browserName()} · API распознавания: ${api} · микрофон: ${perm}`;
+    updateDiag();
+  }
+
   function resetDiag() {
     state.diag = { events: 0, errors: 0, restarts: 0, lastError: '' };
     state.silentWarn = false;
+    state.micResult = '';
     el.diag.hidden = false;
     el.diag.textContent = 'Диагностика: жду события распознавания…';
+    refreshEnv();
   }
+
   function updateDiag() {
     const d = state.diag;
+    const lines = [];
+    if (state.envText) lines.push(state.envText);
     const parts = ['события: ' + d.events, 'ошибки: ' + d.errors];
-    if (d.lastError) parts.push('последняя: ' + (REC_ERRORS[d.lastError] || d.lastError) + ' (' + d.lastError + ')');
+    if (d.lastError) parts.push('последняя: ' + (REC_ERRORS[d.lastError] || d.lastError) + (REC_ERRORS[d.lastError] ? ' (' + d.lastError + ')' : ''));
     parts.push('перезапуски: ' + d.restarts);
-    let text = 'Диагностика — ' + parts.join(' · ');
+    lines.push(parts.join(' · '));
+    if (state.micResult) lines.push(state.micResult);
     if (state.silentWarn && d.events === 0) {
-      text += '\n⚠ За 12 секунд — ни одного события. Если ты говорил, звук не доходит: проверь, что открыт Chrome, микрофон разрешён (замочек в адресной строке) и работает ли голосовой поиск Google.';
+      lines.push('⚠ За 12 секунд — ни одного события. Если ты говорил, звук не доходит: проверь, что открыт Chrome, микрофон разрешён (замочек в адресной строке) и работает ли голосовой поиск Google.');
     }
-    el.diag.textContent = text;
+    el.diag.textContent = lines.join('\n');
   }
+
+  el.micTest.onclick = async () => {
+    el.diag.hidden = false;
+    el.micTest.disabled = true;
+    el.micTest.textContent = 'Проверяю микрофон (4 сек), говори что-нибудь…';
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      const ctx = new Ctx();
+      const src = ctx.createMediaStreamSource(stream);
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 2048;
+      src.connect(analyser);
+      const data = new Float32Array(analyser.fftSize);
+      let peak = 0;
+      const t0 = Date.now();
+      await new Promise((resolve) => {
+        const id = setInterval(() => {
+          analyser.getFloatTimeDomainData(data);
+          for (const v of data) peak = Math.max(peak, Math.abs(v));
+          if (Date.now() - t0 >= 4000) { clearInterval(id); resolve(); }
+        }, 150);
+      });
+      stream.getTracks().forEach((t) => { t.stop(); });
+      try { ctx.close(); } catch {}
+      state.micResult = peak < 0.01
+        ? 'Тест микрофона: тишина (пик ' + peak.toFixed(3) + ') — Chrome не слышит звук. Проверь системный микрофон и разрешение.'
+        : 'Тест микрофона: звук идёт, пик ' + peak.toFixed(3) + '.';
+    } catch (err) {
+      state.micResult = 'Тест микрофона: ошибка ' + ((err && err.name) || err) + ' — ' + ((err && err.message) || '');
+    }
+    el.micTest.disabled = false;
+    el.micTest.textContent = 'Проверить микрофон (4 сек)';
+    updateDiag();
+  };
 
   // ---------- scrolling ----------
   const nearBottom = () => window.scrollY + window.innerHeight >= document.documentElement.scrollHeight - 300;
@@ -360,8 +435,15 @@
         updateDiag();
       }
     }, 12000);
-    try { rec.start(); } catch {}
     setStatus('listening');
+    try {
+      rec.start();
+    } catch (err) {
+      state.diag.errors++;
+      state.diag.lastError = (err && err.name) || String(err);
+      updateDiag();
+      setStatus('error', 'Старт не удался: ' + ((err && err.name) || err));
+    }
     updateToggle();
     acquireLock();
   }
