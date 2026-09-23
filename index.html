@@ -1,0 +1,496 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0e1116">
+<title>Pair Subs — живой перевод пары EN→RU</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%235b9dff'/><text x='16' y='22' font-size='14' font-family='sans-serif' font-weight='700' text-anchor='middle' fill='%230e1116'>EN</text></svg>">
+<style>
+  :root{
+    --bg:#0e1116; --panel:#161d27; --text:#e8eaed; --muted:#98a2b3;
+    --accent:#5b9dff; --ok:#3ddc84; --err:#ff6b6b; --line:#242c38;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{
+    background:var(--bg);color:var(--text);
+    font:16px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    padding-bottom:112px;min-height:100vh;
+  }
+  header{
+    position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:10px;
+    padding:calc(10px + env(safe-area-inset-top)) 14px 10px;
+    background:rgba(14,17,22,.92);backdrop-filter:blur(10px);
+    border-bottom:1px solid var(--line);
+  }
+  .brand{font-weight:700;font-size:15px;white-space:nowrap}
+  .brand span{color:var(--muted);font-weight:500}
+  .status{margin-left:auto;display:flex;align-items:center;gap:8px;font-size:13px;color:var(--muted);min-width:0}
+  .dot{width:9px;height:9px;border-radius:50%;background:#5c6672;flex:none;transition:background .2s}
+  .dot.on{background:var(--ok);box-shadow:0 0 0 4px rgba(61,220,132,.15)}
+  .dot.work{background:var(--accent)}
+  .dot.err{background:var(--err)}
+  #statusText{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #settingsBtn{border:1px solid var(--line);background:var(--panel);color:var(--text);border-radius:10px;padding:8px 11px;font-size:16px;cursor:pointer}
+  main{max-width:840px;margin:0 auto;padding:18px 14px 6px}
+  #hint{
+    color:var(--muted);font-size:14px;line-height:1.5;
+    background:var(--panel);border:1px dashed var(--line);border-radius:12px;
+    padding:12px 14px;margin-bottom:18px;
+  }
+  #hint b{color:var(--text)}
+  #log{display:flex;flex-direction:column;gap:18px}
+  .seg .ru{font-size:clamp(20px,5.2vw,28px);line-height:1.32;font-weight:600;overflow-wrap:anywhere}
+  .seg .ru.pending{color:var(--muted);font-weight:500}
+  .seg .ru.err{color:var(--err);font-weight:500}
+  .seg .en{font-size:13.5px;line-height:1.4;color:var(--muted);margin-top:5px;overflow-wrap:anywhere}
+  #interim{color:var(--muted);font-style:italic;font-size:15px;overflow-wrap:anywhere;margin-top:18px;min-height:1.4em}
+  footer{
+    position:fixed;left:0;right:0;bottom:0;z-index:20;display:flex;gap:10px;
+    max-width:840px;margin:0 auto;
+    padding:12px 14px calc(12px + env(safe-area-inset-bottom));
+    background:linear-gradient(to top, rgba(14,17,22,.98) 55%, rgba(14,17,22,0));
+  }
+  button{font:inherit;color:var(--text);background:var(--panel);border:1px solid var(--line);border-radius:14px;cursor:pointer}
+  button:active{transform:translateY(1px)}
+  button:disabled{opacity:.5;cursor:default}
+  button.primary{
+    flex:1;min-height:54px;background:var(--accent);border-color:var(--accent);
+    color:#08101d;font-weight:700;font-size:17px;
+  }
+  button.primary.stop{background:var(--err);border-color:var(--err);color:#1a0505}
+  button.icon{width:54px;min-height:54px;padding:0;font-size:19px;flex:none}
+  dialog{
+    border:1px solid var(--line);background:var(--panel);color:var(--text);
+    border-radius:18px;padding:16px;width:min(600px,calc(100vw - 20px));max-height:86vh;
+  }
+  dialog::backdrop{background:rgba(0,0,0,.65)}
+  dialog h2{margin:0 0 4px;font-size:17px}
+  .note{color:var(--muted);font-size:13px;margin:8px 0 0;line-height:1.45}
+  label{display:block;font-size:13px;color:var(--muted);margin:14px 0 6px}
+  input,select,textarea{
+    width:100%;background:#0f141b;border:1px solid var(--line);color:var(--text);
+    border-radius:10px;padding:10px 12px;font:inherit;font-size:16px;
+  }
+  textarea{min-height:96px;resize:vertical}
+  .dialog-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:16px}
+  .dialog-actions button{min-height:46px;padding:0 20px}
+  .dialog-actions .primary{flex:none;font-size:16px}
+  #answerOut{margin:10px 0 0;white-space:pre-wrap;font-size:15.5px;line-height:1.5;max-height:52vh;overflow:auto;overflow-wrap:anywhere}
+  .k{display:flex;justify-content:space-between;align-items:baseline;gap:12px}
+  .linkish{background:none;border:none;padding:0;min-height:0;color:var(--accent);font-size:13px}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">Pair&nbsp;Subs <span>EN→RU</span></div>
+  <div class="status"><span id="dot" class="dot"></span><span id="statusText">Готов</span></div>
+  <button type="button" id="settingsBtn" title="Настройки" aria-label="Настройки">⚙️</button>
+</header>
+
+<main>
+  <div id="hint">
+    Нажми <b>«Старт»</b> и положи телефон рядом с динамиком планшета (в Teams — громкая связь/звук погромче).
+    Распознавание речи — английский (Chrome), перевод — DeepSeek.
+    Ключ API и глоссарий — в <b>⚙️ настройках</b>.
+  </div>
+  <div id="log"></div>
+  <div id="interim"></div>
+</main>
+
+<footer>
+  <button type="button" id="toggleBtn" class="primary">▶ Старт</button>
+  <button type="button" id="answerBtn" class="icon" title="Что ответить?" aria-label="Что ответить">💡</button>
+  <button type="button" id="exportBtn" class="icon" title="Скачать транскрипт" aria-label="Скачать транскрипт">⬇️</button>
+  <button type="button" id="clearBtn" class="icon" title="Очистить" aria-label="Очистить">🗑️</button>
+</footer>
+
+<dialog id="settingsDialog">
+  <h2>Настройки</h2>
+  <label for="keyInput">DeepSeek API-ключ</label>
+  <input id="keyInput" type="password" autocomplete="off" spellcheck="false" placeholder="sk-...">
+  <p class="note">Хранится только в этом браузере (localStorage) и отправляется только на api.deepseek.com. В коде страницы ключа нет.</p>
+  <label for="modelSelect">Модель</label>
+  <select id="modelSelect">
+    <option value="deepseek-chat">deepseek-chat — быстро, рекомендуемо</option>
+    <option value="deepseek-reasoner">deepseek-reasoner — медленнее</option>
+  </select>
+  <label for="langSelect">Язык речи (распознавание)</label>
+  <select id="langSelect">
+    <option value="en-US">English (US)</option>
+    <option value="en-GB">English (UK)</option>
+  </select>
+  <label for="glossaryInput">Глоссарий терминов (по одному на строку)</label>
+  <textarea id="glossaryInput" placeholder="conjugation — спряжение&#10;Present Perfect — Present Perfect (не переводить)"></textarea>
+  <div class="dialog-actions"><button type="button" id="settingsClose" class="primary">Готово</button></div>
+</dialog>
+
+<dialog id="answerDialog">
+  <div class="k"><h2>Что ответить?</h2><button type="button" id="answerClose" class="linkish">Закрыть</button></div>
+  <p class="note">По последним фразам пары: для вопросов — варианты ответа, для объяснений — что уточнить.</p>
+  <div id="answerOut"></div>
+  <div class="dialog-actions"><button type="button" id="copyAnswerBtn">Скопировать</button></div>
+</dialog>
+
+<script>
+(() => {
+  'use strict';
+
+  const API_URL = 'https://api.deepseek.com/chat/completions';
+  const MAX_CONTEXT_PAIRS = 8;
+  const ANSWER_CONTEXT_PAIRS = 12;
+
+  const $ = (s) => document.querySelector(s);
+  const el = {
+    dot: $('#dot'), status: $('#statusText'),
+    hint: $('#hint'), log: $('#log'), interim: $('#interim'),
+    toggle: $('#toggleBtn'), answer: $('#answerBtn'), exportBtn: $('#exportBtn'), clear: $('#clearBtn'),
+    settingsBtn: $('#settingsBtn'), settingsDialog: $('#settingsDialog'),
+    keyInput: $('#keyInput'), modelSelect: $('#modelSelect'), langSelect: $('#langSelect'),
+    glossaryInput: $('#glossaryInput'), settingsClose: $('#settingsClose'),
+    answerDialog: $('#answerDialog'), answerOut: $('#answerOut'),
+    answerClose: $('#answerClose'), copyAnswer: $('#copyAnswerBtn'),
+  };
+
+  const LS = {
+    key: 'pairsubs.apikey',
+    model: 'pairsubs.model',
+    lang: 'pairsubs.lang',
+    glossary: 'pairsubs.glossary',
+  };
+
+  const state = {
+    running: false, stopping: false, busy: false,
+    rec: null, lock: null, queue: [], segments: [], history: [],
+    stick: true, statusTimer: null,
+  };
+
+  const store = {
+    get(k, fallback = '') { try { return localStorage.getItem(k) ?? fallback; } catch { return fallback; } },
+    set(k, v) { try { localStorage.setItem(k, v); } catch {} },
+  };
+  const apiKey = () => store.get(LS.key).trim();
+  const model = () => store.get(LS.model, 'deepseek-chat') || 'deepseek-chat';
+  const lang = () => store.get(LS.lang, 'en-US') || 'en-US';
+  const glossary = () => store.get(LS.glossary).trim();
+
+  // ---------- status ----------
+  function setStatus(mode, text) {
+    if (state.statusTimer) { clearTimeout(state.statusTimer); state.statusTimer = null; }
+    const cls = { listening: ' on', translating: ' work', error: ' err' }[mode] || '';
+    el.dot.className = 'dot' + cls;
+    const def = { idle: 'Готов', listening: 'Слушаю…', translating: 'Перевожу…', error: 'Ошибка' }[mode] || '';
+    el.status.textContent = text ?? def;
+  }
+  function flashStatus(text) {
+    el.status.textContent = text;
+    state.statusTimer = setTimeout(() => setStatus(state.running ? 'listening' : 'idle'), 2500);
+  }
+
+  // ---------- scrolling ----------
+  const nearBottom = () => window.scrollY + window.innerHeight >= document.documentElement.scrollHeight - 300;
+  window.addEventListener('scroll', () => { state.stick = nearBottom(); }, { passive: true });
+  function autoScroll() { if (state.stick) window.scrollTo(0, document.documentElement.scrollHeight); }
+
+  // ---------- settings ----------
+  function openSettings() {
+    el.keyInput.value = apiKey();
+    el.modelSelect.value = model();
+    el.langSelect.value = lang();
+    el.glossaryInput.value = store.get(LS.glossary);
+    el.settingsDialog.showModal();
+  }
+  el.settingsBtn.onclick = openSettings;
+  el.settingsClose.onclick = () => el.settingsDialog.close();
+  el.keyInput.addEventListener('input', () => store.set(LS.key, el.keyInput.value.trim()));
+  el.modelSelect.addEventListener('change', () => store.set(LS.model, el.modelSelect.value));
+  el.langSelect.addEventListener('change', () => store.set(LS.lang, el.langSelect.value));
+  el.glossaryInput.addEventListener('input', () => store.set(LS.glossary, el.glossaryInput.value));
+
+  // ---------- recognition ----------
+  function addFinal(raw) {
+    const text = String(raw).trim();
+    if (text.length < 2) return;
+    el.hint.style.display = 'none';
+    const segEl = document.createElement('article');
+    segEl.className = 'seg';
+    const ru = document.createElement('div');
+    ru.className = 'ru pending';
+    ru.textContent = '…';
+    const en = document.createElement('div');
+    en.className = 'en';
+    en.textContent = text;
+    segEl.append(ru, en);
+    el.log.append(segEl);
+    const seg = { ruEl: ru, en: text, ru: '', cancelled: false };
+    state.segments.push(seg);
+    state.queue.push(seg);
+    autoScroll();
+    pump();
+  }
+
+  function makeRecognition() {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) return null;
+    const rec = new SR();
+    rec.lang = lang();
+    rec.continuous = true;
+    rec.interimResults = true;
+    rec.maxAlternatives = 1;
+    rec.onresult = (e) => {
+      let interim = '';
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const r = e.results[i];
+        if (r.isFinal) addFinal(r[0].transcript);
+        else interim += r[0].transcript;
+      }
+      el.interim.textContent = interim;
+      autoScroll();
+    };
+    rec.onerror = (e) => {
+      if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
+        stopListening();
+        setStatus('error', 'Нет доступа к микрофону');
+      } else if (e.error === 'network') {
+        setStatus('error', 'Распознавание: нет сети');
+      }
+    };
+    rec.onend = () => {
+      if (!state.stopping && state.running) {
+        setTimeout(() => { if (state.running) { try { rec.start(); } catch {} } }, 250);
+      }
+    };
+    return rec;
+  }
+
+  function startListening() {
+    if (!apiKey()) { openSettings(); setStatus('idle', 'Сначала ключ в ⚙️'); return; }
+    const rec = makeRecognition();
+    if (!rec) { setStatus('error', 'Нужен Chrome на Android'); return; }
+    state.rec = rec;
+    state.running = true;
+    state.stopping = false;
+    try { rec.start(); } catch {}
+    setStatus('listening');
+    updateToggle();
+    acquireLock();
+  }
+
+  function stopListening() {
+    state.running = false;
+    state.stopping = true;
+    try { state.rec && state.rec.stop(); } catch {}
+    el.interim.textContent = '';
+    releaseLock();
+    updateToggle();
+  }
+
+  function updateToggle() {
+    el.toggle.textContent = state.running ? '⏹ Стоп' : '▶ Старт';
+    el.toggle.classList.toggle('stop', state.running);
+  }
+  el.toggle.onclick = () => {
+    if (state.running) { stopListening(); setStatus('idle'); } else startListening();
+  };
+
+  // ---------- wake lock ----------
+  async function acquireLock() {
+    try { if ('wakeLock' in navigator) state.lock = await navigator.wakeLock.request('screen'); } catch {}
+  }
+  function releaseLock() { try { state.lock && state.lock.release(); } catch {} state.lock = null; }
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden && state.running && !state.lock) acquireLock();
+  });
+
+  // ---------- translation ----------
+  function systemPrompt() {
+    let p = [
+      'Ты — синхронный переводчик на студенческой паре по английскому языку.',
+      'Переводи каждую реплику с английского на русский.',
+      '',
+      'Правила:',
+      '- Выводи ТОЛЬКО перевод, без пояснений, кавычек и вступлений.',
+      '- Речь распознана автоматически: пунктуации нет, возможны ошибки. Восстанавливай смысл по контексту.',
+      '- Термины переводи точно и единообразно.',
+      '- Если фраза оборвана, переведи так, как она, вероятнее всего, прозвучала.',
+    ].join('\n');
+    const g = glossary();
+    if (g) p += '\n\nГлоссарий (используй эти варианты):\n' + g;
+    return p;
+  }
+
+  function contextPairs() {
+    const out = [];
+    for (const p of state.history.slice(-MAX_CONTEXT_PAIRS)) {
+      out.push({ role: 'user', content: p.en }, { role: 'assistant', content: p.ru });
+    }
+    return out;
+  }
+
+  async function chatStream(messages, onDelta) {
+    const res = await fetch(API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + apiKey() },
+      body: JSON.stringify({ model: model(), messages, stream: true, temperature: 0.3, max_tokens: 1024 }),
+    });
+    if (!res.ok) {
+      let detail = '';
+      try { const j = await res.json(); detail = j.error && j.error.message || ''; } catch {}
+      const err = new Error(detail || ('HTTP ' + res.status));
+      err.status = res.status;
+      throw err;
+    }
+    const reader = res.body.getReader();
+    const dec = new TextDecoder();
+    let buf = '', full = '';
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      const lines = buf.split('\n');
+      buf = lines.pop();
+      for (const line of lines) {
+        const s = line.trim();
+        if (!s.startsWith('data:')) continue;
+        const data = s.slice(5).trim();
+        if (!data || data === '[DONE]') continue;
+        let json;
+        try { json = JSON.parse(data); } catch { continue; }
+        const delta = json.choices && json.choices[0] && json.choices[0].delta && json.choices[0].delta.content;
+        if (delta) { full += delta; onDelta(full); }
+      }
+    }
+    return full;
+  }
+
+  function friendlyError(err) {
+    const m = String((err && err.message) || err);
+    if (err && err.status === 401) return 'Неверный API-ключ (401)';
+    if (err && err.status === 402) return 'Баланс DeepSeek исчерпан (402)';
+    if (err && err.status === 429) return 'Слишком много запросов (429)';
+    if (m.includes('Failed to fetch')) return 'Сеть недоступна';
+    return m.slice(0, 160);
+  }
+
+  async function translateSeg(seg) {
+    setStatus('translating');
+    const messages = [
+      { role: 'system', content: systemPrompt() },
+      ...contextPairs(),
+      { role: 'user', content: seg.en },
+    ];
+    try {
+      const text = await chatStream(messages, (full) => {
+        seg.ruEl.textContent = full;
+        seg.ruEl.className = 'ru';
+        autoScroll();
+      });
+      if (seg.cancelled) return;
+      const clean = text.trim();
+      if (!clean) {
+        seg.ruEl.textContent = '⚠ Пустой ответ';
+        seg.ruEl.className = 'ru err';
+        return;
+      }
+      seg.ru = clean;
+      seg.ruEl.textContent = clean;
+      state.history.push({ en: seg.en, ru: clean });
+      if (state.history.length > 60) state.history.shift();
+    } catch (err) {
+      if (seg.cancelled) return;
+      seg.ruEl.textContent = '⚠ ' + friendlyError(err);
+      seg.ruEl.className = 'ru err';
+    }
+  }
+
+  function pump() {
+    if (state.busy || !state.queue.length) return;
+    state.busy = true;
+    const seg = state.queue.shift();
+    translateSeg(seg).finally(() => {
+      state.busy = false;
+      if (state.queue.length) pump();
+      else if (state.running) setStatus('listening');
+    });
+  }
+
+  // ---------- answer helper ----------
+  el.answer.onclick = () => { el.answerDialog.showModal(); askAnswer(); };
+  el.answerClose.onclick = () => el.answerDialog.close();
+  el.copyAnswer.onclick = async () => {
+    try {
+      await navigator.clipboard.writeText(el.answerOut.textContent);
+      el.copyAnswer.textContent = 'Скопировано ✓';
+      setTimeout(() => { el.copyAnswer.textContent = 'Скопировать'; }, 1500);
+    } catch {}
+  };
+
+  async function askAnswer() {
+    if (!apiKey()) { el.answerOut.textContent = 'Нужен API-ключ — открой ⚙️ и вставь его.'; return; }
+    const pairs = state.history.slice(-ANSWER_CONTEXT_PAIRS);
+    if (!pairs.length && !state.segments.length) {
+      el.answerOut.textContent = 'Пока нет распознанных фраз. Нажми «Старт» и дай паре немного поговорить.';
+      return;
+    }
+    const body = (pairs.length
+      ? pairs.map((p) => 'EN: ' + p.en + '\nRU: ' + p.ru)
+      : state.segments.slice(-ANSWER_CONTEXT_PAIRS).map((s) => 'EN: ' + s.en)
+    ).join('\n\n');
+    el.answerOut.textContent = '…';
+    const messages = [
+      { role: 'system', content: [
+        'Ты — помощник студента на паре по английскому языку.',
+        'Ниже расшифровка последних реплик пары.',
+        'Если последнее — вопрос к студенту: предложи 2–3 коротких варианта ответа на английском (естественных, разговорных), каждый с переводом на русский.',
+        'Если это объяснение или обсуждение: предложи один уточняющий вопрос на английском с переводом и одну короткую фразу, чтобы показать понимание.',
+        'Пиши компактно, без вступлений.',
+      ].join('\n') },
+      { role: 'user', content: body },
+    ];
+    try {
+      await chatStream(messages, (full) => { el.answerOut.textContent = full; });
+    } catch (err) {
+      el.answerOut.textContent = '⚠ ' + friendlyError(err);
+    }
+  }
+
+  // ---------- export / clear ----------
+  el.exportBtn.onclick = () => {
+    if (!state.segments.length) { flashStatus('Пока нечего экспортировать'); return; }
+    const lines = ['# Транскрипт пары', '', 'Дата: ' + new Date().toLocaleString('ru-RU'), '', '---', ''];
+    for (const s of state.segments) {
+      lines.push('**EN:** ' + s.en);
+      lines.push('**RU:** ' + (s.ru || '—'));
+      lines.push('');
+    }
+    const blob = new Blob([lines.join('\n')], { type: 'text/markdown;charset=utf-8' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'pair-' + new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-') + '.md';
+    document.body.append(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  };
+
+  el.clear.onclick = () => {
+    if (!state.segments.length) return;
+    if (!confirm('Очистить весь транскрипт?')) return;
+    for (const s of state.segments) s.cancelled = true;
+    state.segments = [];
+    state.history = [];
+    state.queue = [];
+    el.log.innerHTML = '';
+    el.interim.textContent = '';
+    el.hint.style.display = '';
+  };
+
+  // ---------- init ----------
+  updateToggle();
+  setStatus('idle', apiKey() ? 'Готов' : 'Вставь ключ в ⚙️');
+})();
+</script>
+</body>
+</html>
